@@ -53,9 +53,9 @@ void initStart(const int npart, const float temp, float** positions_ptr, float**
 					break;
 				}
 				
-				positions[(dimensions*dimensions*i+dimensions*j+k)*3] = k*dx +dx/2;
-				positions[(dimensions*dimensions*i+dimensions*j+k)*3+1] = j*dy +dy/2;
-				positions[(dimensions*dimensions*i+dimensions*j+k)*3+2] = i*dz +dz/2;
+				positions[(dimensions*dimensions*i+dimensions*j+k)*3] = k*dx +dx/2 -box[0]/2;
+				positions[(dimensions*dimensions*i+dimensions*j+k)*3+1] = j*dy +dy/2 -box[1]/2;
+				positions[(dimensions*dimensions*i+dimensions*j+k)*3+2] = i*dz +dz/2 -box[2]/2;
 				counter++;
 				//fprintf(stderr,"counter: %d i= %d j=%d k=%d\n",counter,i,j,k);
 			}
@@ -463,9 +463,10 @@ void integrateVelVerlet(const float en, const float* box, const int part, const 
 				positions[3*i+j] += dt* velocities[3*i+j] +dt*dt* f[3*i+j]/2; //update position
 				
 				//apply periodic boundary conditions
-				if(positions[3*i+j] > box[j] || positions[3*i+j] < 0) {
+				if(positions[3*i+j] > box[j]/2 || positions[3*i+j] < -box[j]/2) {
 					//float pposition = positions[3*i+j];
-					positions[3*i+j] -= floor(positions[3*i+j]/box[j])*box[j];
+					//positions[3*i+j] -= floor(positions[3*i+j]/box[j])*box[j];
+					positions[3*i+j] -= round(positions[3*i+j]/box[j])*box[j];
 					//fprintf(stdout,"Out of box positive particle %d in frame %d. Calculated position %f, corrected position %f\n",i,frame,pposition, positions[3*i+j]);
 				}
 
@@ -566,7 +567,7 @@ void sample(FILE* xres, FILE* vres, int npart, float* positions, float* velociti
 	}
 }
 
-void sample(FILE* xres, FILE* vres, int npart, float* positions, float* velocities, float box, int nslabs, int* density) {
+/*void sample(FILE* xres, FILE* vres, int npart, float* positions, float* velocities, float box, int nslabs, int* density) {
 	
 	int i;
 	
@@ -590,9 +591,9 @@ void sample(FILE* xres, FILE* vres, int npart, float* positions, float* velociti
 	/* for(i=0; i<npart; i++) {
 		//fprintf(fres, " %d %8.8f %8.8f %8.8f \n", i,f[3*i],f[3*i+1],f[3*i+2]);
 		fprintf(fres, " atom %8.8f %8.8f %8.8f \n",f[3*i],f[3*i+1],f[3*i+2]);
-	} */
+	}
 	
-} 
+}*/
 
 int main(int argc, char* argv[])
 {
@@ -608,7 +609,7 @@ int main(int argc, char* argv[])
 	//char* fpath;
 	int thermostat =0;
 	int continued = 0;
-	int densityMeasurement = 0;
+	//int densityMeasurement = 0;
 		
 	if(argc==9) {
 		
@@ -663,7 +664,7 @@ int main(int argc, char* argv[])
 			thermostat =1;
 			continued =1;
 			printf("Input: Temperature: %f timestep: %f Maxtime: %f BoxX: %f BoxY: %f BoxZ: %f cutoff: %f collision-probability: %f continued run with thermostat reading path: %s reading path: %s\n",temp,dt,tmax,box[0],box[1],box[2],cutoff, nu, inXpath, inVpath);
-		} else if(argc==12) {
+		/*} else if(argc==12) {
 			
 			//sscanf(argv[1],"%d",&npart); //units: https://en.wikipedia.org/wiki/Lennard-Jones_potential#Dimensionless_.28reduced.29_units
 			sscanf(argv[1],"%f",&temp);
@@ -685,7 +686,7 @@ int main(int argc, char* argv[])
 			thermostat =1;
 			continued =1;
 			densityMeasurement=1;
-			printf("Input: Temperature: %f timestep: %f Maxtime: %f BoxX: %f BoxY: %f BoxZ: %f cutoff: %f collision-probability: %f continued run with thermostat reading path: %s reading path: %s Number of slabs %d \n",temp,dt,tmax,box[0],box[1],box[2],cutoff, nu, inXpath, inVpath,nslabs);
+			printf("Input: Temperature: %f timestep: %f Maxtime: %f BoxX: %f BoxY: %f BoxZ: %f cutoff: %f collision-probability: %f continued run with thermostat reading path: %s reading path: %s Number of slabs %d \n",temp,dt,tmax,box[0],box[1],box[2],cutoff, nu, inXpath, inVpath,nslabs);*/
 		} else {
 			
 			printf("Syntax: ./MD (*not in continued run* <number of particles>) <temperature> <dt> <tmax> <boxX> <boxY> <boxZ> <cutoffDistance> (*optional* <collision probability> <Readpath pos> <Readpath vel>)\n");
@@ -697,8 +698,8 @@ int main(int argc, char* argv[])
 	FILE* vres = fopen("./vel.xyz","w");
 //	FILE* fres = fopen(fpath,"w");
 	
-	FILE* dres = fopen("./density.xyz","w");
-	if(!dres) {printf("File not found!");}
+	//FILE* dres = fopen("./density.xyz","w");
+	//if(!dres) {printf("File not found!");}
 	
 	
 	if(!xres || !vres) {
@@ -706,7 +707,7 @@ int main(int argc, char* argv[])
 		exit(-1);
 	}
 	
-	int* density = (int*) calloc(nslabs,sizeof(int));
+	//int* density = (int*) calloc(nslabs,sizeof(int));
  	
 	float en;
 	
@@ -764,20 +765,21 @@ int main(int argc, char* argv[])
 			calcForce(&en, f, positions, npart, box, cutoff2,(int)(t/dt), ecut);
 			integrateVelVerlet(en,box, 2,f, npart, positions, velocities, dt, temp,nu,(int)(t/dt));
 			t += dt;
-			if(!densityMeasurement) {sample(xres, vres, npart, positions, velocities);}
-				else {sample(xres, vres, npart, positions, velocities,box[2],nslabs,density);}
+			if(t/dt==10000) sample(xres, vres, npart, positions, velocities);
+			//if(!densityMeasurement) sample(xres, vres, npart, positions, velocities);
+				//else sample(xres, vres, npart, positions, velocities,box[2],nslabs,density);
 			fprintf(stderr,"Stage %% %f\r",(double)t/tmax*100.0);
 		}
 	}
 	
-	if(densityMeasurement) {
+	/*if(densityMeasurement) {
 		fprintf(dres, "Number of particles in cells of length %f / %d \n", box[2],nslabs);
 		
 		for(int i=0; i<nslabs;i++){							
 			fprintf(dres, "Slab %d % d \n", i, density[i] / ( (int) (tmax/dt) ) );						//Gebe Anzahl Atome pro Slab in einer Zeile nebeneinander aus 
 		}
 		fclose(dres);
-	}
+	}*/
 	
 	fclose(xres);
 	fclose(vres);
