@@ -124,6 +124,62 @@ void initContinued(int *npart, float** positions_ptr, float** velocities_ptr, fl
 	
 }
 
+void initPreset(float temp, int *npart, float** positions_ptr, float** velocities_ptr, float** f_ptr, FILE* xin) {
+	
+	int i,j;
+	float* sumv = (float*)calloc(3,sizeof(float));
+	float sumv2 = 0;
+	srand(421);
+	
+	fscanf(xin,"%d\n",npart); //read number of particles
+	
+	*positions_ptr = (float*) calloc(3*(*npart),sizeof(float));
+	*velocities_ptr = (float*) calloc(3*(*npart),sizeof(float));
+	*f_ptr = (float*) calloc(3*(*npart),sizeof(float));
+	
+	float* positions = *positions_ptr;
+	float* velocities = *velocities_ptr;
+	
+	//skip second line
+	fscanf(xin, "%*[^\n]\n", NULL);
+	
+	
+	for(i=0; i<*npart; i++)
+		fscanf(xin, "atom %f %f %f\n",&positions[3*i],&positions[3*i+1],&positions[3*i+2]);
+	
+	
+	for (i = 0; i < *npart; i++) {
+		for(j = 0; j < 3; j++){
+			
+		velocities[i*3 + j] = (rand()/(float)RAND_MAX - 0.5);
+		sumv[j] += velocities[i*3+j];
+		sumv2 += velocities[i*3+j]*velocities[i*3+j];
+		
+		}
+		
+	}
+	
+	sumv[0] /= *npart;
+	sumv[1] /= *npart;
+	sumv[2] /= *npart;
+	sumv2 /= *npart;
+	
+	float vCMS2 = sumv[0]*sumv[0] + sumv[1]*sumv[1] + sumv[2]*sumv[2];
+	
+	fprintf(stdout,"Velocity Center of mass: %f frame 0\n",vCMS2);
+	
+	float fs = sqrt(3*temp/sumv2);
+	
+	for (i = 0; i < *npart; i++) {
+		for(j = 0; j < 3; j++) {
+		velocities[i*3 + j] -= sumv[j];
+		velocities[i*3 + j] *= fs;
+		}
+	}
+	
+	free(sumv);
+}
+
 
 float gauss(float sigma, float mean) {
 	
@@ -506,7 +562,7 @@ void integrateVelVerlet(const float en, const float* box, const int part, const 
 		float sumvSquared = sumv[0]*sumv[0] + sumv[1]*sumv[1] + sumv[2]*sumv[2];	
 		float etot = (en + 0.5*temp_current)/npart;
 		
-		fprintf(stdout,"Vel CMS: %f Temp: %f Energy: %f frame: %d\n",sumvSquared, temp_current, etot, frame);
+		fprintf(stdout,"total Vel CMS: %f VelX: %8.5f VelY %8.5f VelZ %8.5f Temp: %f Energy: %f frame: %d\n",sumvSquared, sumv[0], sumv[1], sumv[2], temp_current, etot, frame);
 	
 		
 		//fprintf(stdout,"Velocity Center of mass: %f frame: %d\n",sumv2, frame);
@@ -597,7 +653,7 @@ void sample(FILE* xres, FILE* vres, int npart, float* positions, float* velociti
 
 int main(int argc, char* argv[])
 {
-	int npart,nslabs;
+	int npart,sampleStep;
 	float temp,dt,tmax,cutoff, cutoff2,nu;
 	float box[3];
 	//cutoff for lennard jones
@@ -609,87 +665,77 @@ int main(int argc, char* argv[])
 	//char* fpath;
 	int thermostat =0;
 	int continued = 0;
+	int preset =0;
 	//int densityMeasurement = 0;
 		
-	if(argc==9) {
+	if(argc==10) {
 		
 			sscanf(argv[1],"%d",&npart); //units: https://en.wikipedia.org/wiki/Lennard-Jones_potential#Dimensionless_.28reduced.29_units
 			sscanf(argv[2],"%f",&temp);
 			sscanf(argv[3],"%f",&dt);
 			sscanf(argv[4],"%f",&tmax);
-			sscanf(argv[5],"%f",&box[0]);
-			sscanf(argv[6],"%f",&box[1]);
-			sscanf(argv[7],"%f",&box[2]);
-			sscanf(argv[8],"%f",&cutoff);
+			sscanf(argv[5],"%d",&sampleStep);
+			sscanf(argv[6],"%f",&box[0]);
+			sscanf(argv[7],"%f",&box[1]);
+			sscanf(argv[8],"%f",&box[2]);
+			sscanf(argv[9],"%f",&cutoff);
 			//xpath = argv[9];
 			//vpath = argv[10];
 			//endXpath = argv[10];
 			//endVpath = argv[11];
-			printf("Input: Particles: %d Temperature: %f timestep: %f Maxtime: %f BoxX: %f BoxY: %f BoxZ: %f cutoff: %f\n",npart,temp,dt,tmax,box[0],box[1],box[2],cutoff);
-		} else if(argc==10) {
+			printf("Input: Particles: %d Temperature: %f timestep: %f Maxtime: %f Samplestep: %d BoxX: %f BoxY: %f BoxZ: %f cutoff: %f\n",npart,temp,dt,tmax, sampleStep, box[0],box[1],box[2],cutoff);
+		} else if(argc==11) {
 			
 			sscanf(argv[1],"%d",&npart); //units: https://en.wikipedia.org/wiki/Lennard-Jones_potential#Dimensionless_.28reduced.29_units
 			sscanf(argv[2],"%f",&temp);
 			sscanf(argv[3],"%f",&dt);
 			sscanf(argv[4],"%f",&tmax);
+			sscanf(argv[5],"%d",&sampleStep);
+			sscanf(argv[6],"%f",&box[0]);
+			sscanf(argv[7],"%f",&box[1]);
+			sscanf(argv[8],"%f",&box[2]);
+			sscanf(argv[9],"%f",&cutoff);
+			sscanf(argv[10],"%f",&nu);
+			thermostat =1;
+			printf("Input: Particles: %d Temperature: %f timestep: %f Maxtime: %f Samplestep: %d BoxX: %f BoxY: %f BoxZ: %f cutoff: %f collision-probability: %f run with thermostat\n",npart,temp,dt,tmax, sampleStep, box[0],box[1],box[2],cutoff,nu);
+		} else if(argc==12) {
+			
+			//https://en.wikipedia.org/wiki/Lennard-Jones_potential#Dimensionless_.28reduced.29_units
+			sscanf(argv[1],"%f",&temp);
+			sscanf(argv[2],"%f",&dt);
+			sscanf(argv[3],"%f",&tmax);
+			sscanf(argv[4],"%d",&sampleStep);
 			sscanf(argv[5],"%f",&box[0]);
 			sscanf(argv[6],"%f",&box[1]);
 			sscanf(argv[7],"%f",&box[2]);
 			sscanf(argv[8],"%f",&cutoff);
-			//xpath = argv[9];
-			//vpath = argv[10];
-			//endXpath = argv[11];
-			//endVpath = argv[12];
 			sscanf(argv[9],"%f",&nu);
-			thermostat =1;
-			printf("Input: Particles: %d Temperature: %f timestep: %f Maxtime: %f BoxX: %f BoxY: %f BoxZ: %f cutoff: %f collision-probability: %f run with thermostat\n",npart,temp,dt,tmax,box[0],box[1],box[2],cutoff,nu);
-		} else if(argc==11) {
+			inXpath = argv[10];
 			
-			//sscanf(argv[1],"%d",&npart); //units: https://en.wikipedia.org/wiki/Lennard-Jones_potential#Dimensionless_.28reduced.29_units
+			thermostat =1;
+			preset =1;
+			printf("Input: Temperature: %f timestep: %f Maxtime: %f Samplestep: %d BoxX: %f BoxY: %f BoxZ: %f cutoff: %f collision-probability: %f continued run with thermostat reading path: %s\n",temp,dt,tmax, sampleStep, box[0],box[1],box[2],cutoff, nu, inXpath);
+
+		} else if(argc==13) {
+						//sscanf(argv[1],"%d",&npart); //units: https://en.wikipedia.org/wiki/Lennard-Jones_potential#Dimensionless_.28reduced.29_units
 			sscanf(argv[1],"%f",&temp);
 			sscanf(argv[2],"%f",&dt);
 			sscanf(argv[3],"%f",&tmax);
-			sscanf(argv[4],"%f",&box[0]);
-			sscanf(argv[5],"%f",&box[1]);
-			sscanf(argv[6],"%f",&box[2]);
-			sscanf(argv[7],"%f",&cutoff);
-			//xpath = argv[8];
-			//vpath = argv[9];
-			sscanf(argv[8],"%f",&nu);
-			//endXpath = argv[11];
-			//endVpath = argv[12];
-			inXpath = argv[9];
-			inVpath = argv[10];
+			sscanf(argv[4],"%d",&sampleStep);
+			sscanf(argv[5],"%f",&box[0]);
+			sscanf(argv[6],"%f",&box[1]);
+			sscanf(argv[7],"%f",&box[2]);
+			sscanf(argv[8],"%f",&cutoff);
+			sscanf(argv[9],"%f",&nu);
+			inXpath = argv[10];
+			inVpath = argv[11];
 			
 			thermostat =1;
 			continued =1;
-			printf("Input: Temperature: %f timestep: %f Maxtime: %f BoxX: %f BoxY: %f BoxZ: %f cutoff: %f collision-probability: %f continued run with thermostat reading path: %s reading path: %s\n",temp,dt,tmax,box[0],box[1],box[2],cutoff, nu, inXpath, inVpath);
-		/*} else if(argc==12) {
-			
-			//sscanf(argv[1],"%d",&npart); //units: https://en.wikipedia.org/wiki/Lennard-Jones_potential#Dimensionless_.28reduced.29_units
-			sscanf(argv[1],"%f",&temp);
-			sscanf(argv[2],"%f",&dt);
-			sscanf(argv[3],"%f",&tmax);
-			sscanf(argv[4],"%f",&box[0]);
-			sscanf(argv[5],"%f",&box[1]);
-			sscanf(argv[6],"%f",&box[2]);
-			sscanf(argv[7],"%f",&cutoff);
-			//xpath = argv[8];
-			//vpath = argv[9];
-			sscanf(argv[8],"%f",&nu);
-			//endXpath = argv[11];
-			//endVpath = argv[12];
-			inXpath = argv[9];
-			inVpath = argv[10];
-			sscanf(argv[11],"%d",&nslabs);
-			
-			thermostat =1;
-			continued =1;
-			densityMeasurement=1;
-			printf("Input: Temperature: %f timestep: %f Maxtime: %f BoxX: %f BoxY: %f BoxZ: %f cutoff: %f collision-probability: %f continued run with thermostat reading path: %s reading path: %s Number of slabs %d \n",temp,dt,tmax,box[0],box[1],box[2],cutoff, nu, inXpath, inVpath,nslabs);*/
+			printf("Input: Temperature: %f timestep: %f Maxtime: %f Samplestep: %d BoxX: %f BoxY: %f BoxZ: %f cutoff: %f collision-probability: %f continued run with thermostat reading path: %s reading path: %s\n",temp,dt,tmax, sampleStep, box[0],box[1],box[2],cutoff, nu, inXpath, inVpath);
 		} else {
 			
-			printf("Syntax: ./MD (*not in continued run* <number of particles>) <temperature> <dt> <tmax> <boxX> <boxY> <boxZ> <cutoffDistance> (*optional* <collision probability> <Readpath pos> <Readpath vel>)\n");
+			printf("Syntax: ./MD (*not in continued run* <number of particles>) <temperature> <dt> <tmax> <sampleStep> <boxX> <boxY> <boxZ> <cutoffDistance> (*optional* <collision probability> <Readpath pos> <Readpath vel>/<preset y/n> <Continued y/n>)\n");
 			exit(-1);
 		}
 		
@@ -727,10 +773,23 @@ int main(int argc, char* argv[])
 		}
 		
 		initContinued(&npart, &positions, &velocities, &f,xin,vin);
-		fprintf(stderr,"pos %f %f %f\n", positions[0],positions[1],positions[2]);
+		//fprintf(stderr,"pos %f %f %f\n", positions[0],positions[1],positions[2]);
 		fclose(xin);
 		fclose(vin);
 
+	} else if(preset) {
+		
+		FILE* xin = fopen(inXpath,"r");
+		
+		if(!xin) {
+			printf("File not found!");
+			exit(-1);
+		}
+		
+		initPreset(temp, &npart, &positions, &velocities, &f,xin);
+		//fprintf(stderr,"pos %f %f %f\n", positions[0],positions[1],positions[2]);
+		fclose(xin);
+		
 	} else {
 		initStart(npart, temp, &positions, &ppositions, &velocities, &f,dt,box);
 	}
@@ -765,7 +824,8 @@ int main(int argc, char* argv[])
 			calcForce(&en, f, positions, npart, box, cutoff2,(int)(t/dt), ecut);
 			integrateVelVerlet(en,box, 2,f, npart, positions, velocities, dt, temp,nu,(int)(t/dt));
 			t += dt;
-			if(t/dt==10000) sample(xres, vres, npart, positions, velocities);
+			if(!(((int)(t/dt))%sampleStep)) sample(xres, vres, npart, positions, velocities);
+			//sample(xres, vres, npart, positions, velocities);
 			//if(!densityMeasurement) sample(xres, vres, npart, positions, velocities);
 				//else sample(xres, vres, npart, positions, velocities,box[2],nslabs,density);
 			fprintf(stderr,"Stage %% %f\r",(double)t/tmax*100.0);
