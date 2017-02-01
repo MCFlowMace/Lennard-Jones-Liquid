@@ -105,14 +105,17 @@ int main(int argc, char* argv[]) {
 	if ( (divisionsX == divisionsY) && (divisionsY == divisionsZ) && (box[0] == box[1]) && (box[1] == box[2]) ) {
 		
 		float cellDensities[divisionsX][divisionsX][divisionsX];
-		float average,var,varVar;
+		float average,var,varVar,averageTemp;
 		
-		FILE* binder = fopen("./BinderParameter.xyz","w");
 		
-		if(!binder) {
-		printf("File not found!");
-		exit(-1);
+		for (i=0;i< divisionsX ;i++) {
+			for (j = 0; j < divisionsX; j++) {
+				for (z = 0; z < divisionsX; z++) {
+					cellDensities[i][j][z] = 0;			//Initialisiere cellDensities Array
+				}
+			}
 		}
+		
 		
 		FILE* xin = fopen(posIn,"r");
 	
@@ -121,29 +124,80 @@ int main(int argc, char* argv[]) {
 		
 		error = fscanf(xin,"atom %f %f %f \n",&posX,&posY,&posZ);
 		
-		while( error!= EOF) { //Solange es noch etwas zu lesen gibt? 
-		for(i=0; i<npart;i++) {
-			cellDensities[(int)(posX / (box[0] / divisionsX))][(int)(posY / (box[0] / divisionsX))][(int)(posZ / (box[0] / divisionsX))] += 1 / ( (box[0] / divisionsX) * (box[0] / divisionsX) * (box[0] / divisionsX) );
-			error = fscanf(xin,"atom %f %f %f \n",&posX,&posY,&posZ);
-		}
-		frames++; //Hiermit dann mitzählen wie viele Frames abgelaufen - Am Ende die Dichte damit verrechnen und ausgeben
-		}
 		
-		for (i=0;i< divisionsX ;i++) {
-			for (j = 0; j < divisionsX; j++) {
-				for (z = 0; z < divisionsX; z++) {
-					average += cellDensities[i][j][z];
+		while( error != EOF) { //Solange es noch etwas zu lesen gibt? 
+		
+			for(i=0; i<npart;i++) {
+				cellDensities[(int)(posX / (box[0] / divisionsX))][(int)(posY / (box[0] / divisionsX))][(int)(posZ / (box[0] / divisionsX))] +=  1 / ( (box[0] / divisionsX) * (box[0] / divisionsX) * (box[0] / divisionsX) ) ;
+				error = fscanf(xin,"atom %f %f %f \n",&posX,&posY,&posZ);
+			}
+			frames++; //Hiermit dann mitzählen wie viele Frames abgelaufen - Am Ende die Dichte damit verrechnen und ausgeben
+		
+		
+		
+			//Berechnung roh_bar / m^2 / m^4 
+			
+			
+			//average entspricht roh_bar
+			for (i=0;i< divisionsX ;i++) {
+				for (j = 0; j < divisionsX; j++) {
+					for (z = 0; z < divisionsX; z++) {
+						averageTemp += cellDensities[i][j][z];			
+					}
 				}
 			}
+			
+			averageTemp /= divisionsX * divisionsX * divisionsX;
+			average += averageTemp;
+		
+		
+			//var entspricht m^2 
+			for (i=0;i< divisionsX ;i++) {
+				for (j = 0; j < divisionsX; j++) {
+					for (z = 0; z < divisionsX; z++) {
+						var += (averageTemp - cellDensities[i][j][z]) * (averageTemp - cellDensities[i][j][z]) ;			
+					}
+				}
+			}
+		
+		
+			//varVar entspricht m^4
+			for (i=0;i< divisionsX ;i++) {
+				for (j = 0; j < divisionsX; j++) {
+					for (z = 0; z < divisionsX; z++) {
+						varVar += (averageTemp - cellDensities[i][j][z]) * (averageTemp - cellDensities[i][j][z]) * (averageTemp - cellDensities[i][j][z])* (averageTemp - cellDensities[i][j][z]) ;			
+					}
+				}
+			}
+			
+			for (i=0;i< divisionsX ;i++) {
+				for (j = 0; j < divisionsX; j++) {
+					for (z = 0; z < divisionsX; z++) {
+						cellDensities[i][j][z] = 0;			//Reset Cell Densities
+					}
+				}
+			}
+		
 		}
-		average /= divisionsX*divisionsX*divisionsX;
+		
+		average /= frames;
+		var /= (frames*divisionsX*divisionsX*divisionsX);
+		varVar /= (frames*divisionsX*divisionsX*divisionsX);
 		
 		
-	
+		
+		FILE* binder = fopen("./BinderParameter.xyz","w");
+		
+		if(!binder) {
+		printf("File not found!");
+		exit(-1);
+		}
+		
 		fprintf(binder,"%d\n",npart);
-		fprintf(binder,"Binder parameters: Average density %d | Variance of average density | Variance of the variance \n",npart/(divisionsX*divisionsX*divisionsX));
+		fprintf(binder,"Moments of density: Average density %f | Variance of average density | Variance of the variance \n",(float)(npart)/(box[0]*box[0]*box[0]) ) ;
 		
-		fprintf(binder, "%8.8f \n", average );
+		fprintf(binder, "%8.8f %8.3f %8.3f \n", average, var , varVar );
+		fprintf(binder, "Binder parameter: %f",varVar/(var * var));
 		
 	}
 	
