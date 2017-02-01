@@ -210,7 +210,7 @@ void errorHandler  (cudaError_t error, int line){
   }
 }
 
-__global__ void particleForce(float* f, const float* positions, const int npart, const float boxX, const float boxY, const float boxZ, const float cutoff2, const int n, const float ecut, float* energies) {
+__global__ void particleForce(float* f, const float* positions, const int npart, const float boxX, const float boxY, const float boxZ, const float cutoff2, const int n, const float ecut, float* energies,float* surfaceTensions) {
 	
 	
 	int threadId = blockIdx.x*blockDim.x + threadIdx.x;
@@ -258,24 +258,28 @@ __global__ void particleForce(float* f, const float* positions, const int npart,
 							
 							if(j>threadId)
 								energies[threadId] += 4*r6i*(r6i-1) - ecut;
+								surfaceTensions[threadId] += ff * (rx*rx + ry*ry - 2 * rz * rz);
 						}
 						
 	}
 }
 
-void calcForce(float* en, float* f, const float* positions, const int npart, const float *box, const float cutoff2, const int n, const float ecut) {
+void calcForce(float *surfaceTension,float* en, float* f, const float* positions, const int npart, const float *box, const float cutoff2, const int n, const float ecut) {
 	
 	
 	float *devPtr_forces;
 	float *devPtr_positions;
 	float *devPtr_energies;
+	float *devPtr_SurfaceTensions;
 	int i;
 	
 	float *energies = (float*)calloc(npart,sizeof(float));
+	float *SurfaceTensions = (float*)calloc(npart,sizeof(float));
 
 	errorHandler(cudaMalloc((void**)&devPtr_forces, 3*npart* sizeof(float)),__LINE__);
 	errorHandler(cudaMalloc((void**)&devPtr_positions, 3*npart* sizeof(float)),__LINE__);
 	errorHandler(cudaMalloc((void**)&devPtr_energies, npart*sizeof(float)),__LINE__);
+	errorHandler(cudaMalloc((void**)&devPtr_SurfaceTensions, npart*sizeof(float)),__LINE__);
 	
 	//errorHandler(cudaMemcpy(devPtr_forces, f, 3*npart * sizeof(float), cudaMemcpyHostToDevice),__LINE__);
 	errorHandler(cudaMemcpy(devPtr_positions, positions, 3*npart * sizeof(float), cudaMemcpyHostToDevice),__LINE__);
@@ -285,28 +289,33 @@ void calcForce(float* en, float* f, const float* positions, const int npart, con
 	
 	//fprintf(stderr,"starting GPU calc\n");
 	
-	particleForce<<<blocks, threadsPerBlock>>>(devPtr_forces, devPtr_positions, npart, box[0], box[1], box[2], cutoff2, n,ecut, devPtr_energies);
+	particleForce<<<blocks, threadsPerBlock>>>(devPtr_forces, devPtr_positions, npart, box[0], box[1], box[2], cutoff2, n,ecut, devPtr_energies,devPtr_SurfaceTensions);
 	errorHandler( cudaPeekAtLastError(),__LINE__);
 	
 	errorHandler(cudaMemcpy(f, devPtr_forces, 3*npart * sizeof(float), cudaMemcpyDeviceToHost),__LINE__);
 	errorHandler(cudaMemcpy(energies,devPtr_energies, npart*sizeof(float), cudaMemcpyDeviceToHost),__LINE__);
+	errorHandler(cudaMemcpy(SurfaceTensions,devPtr_SurfaceTensions, npart*sizeof(float), cudaMemcpyDeviceToHost),__LINE__);
 	
 	errorHandler(cudaFree(devPtr_forces),__LINE__);
 	errorHandler(cudaFree(devPtr_positions),__LINE__);
 	errorHandler(cudaFree(devPtr_energies),__LINE__);
+	errorHandler(cudaFree(devPtr_positions),__LINE__);
+	errorHandler(cudaFree(devPtr_SurfaceTensions),__LINE__);
 	
+	*surfaceTension = 0;
 	*en =0;
 	for(i=0; i<npart; i++) {
 		*en += energies[i];
+		*surfaceTension += SurfaceTensions[i];
 	}
 	
 	free(energies);
-
+	free(SurfaceTensions);
 	
 }
 
 
-/*__global__ void integrateParticle1(const int npart, const float* f, float* positions, float* velocities, const float dt) {
+/*__global__ void integrateParticle1(const int npart, const float* box, const float* f, float* positions, float* velocities, const float dt) {
 	
 	
 	
@@ -319,8 +328,17 @@ void calcForce(float* en, float* f, const float* positions, const int npart, con
 		
 	for( j=0; j<3; j++) {
 		positions[3*threadId+j] += dt* velocities[3*threadId+j] +dt*dt* f[3*threadId+j]/2;
+
+		//apply periodic boundary conditions
+		if(positions[3*threadId+j] > box[j]/2 || positions[3*threadId+j] < -box[j]/2) {
+
+			positions[3*threadId+j] -= round(positions[3*threadId+j]/box[j])*box[j];
+
+		}
+
 		velocities[3*threadId+j] += dt*f[3*threadId+j]/2;
 	}
+
 	
 }
 
@@ -341,7 +359,7 @@ __global__ void integrateParticle2(const int npart, const float* f, float* veloc
 	
 }
 
-void integrateVelVerlet(const int part, const float* f, const int npart, float* positions, float* velocities, const float dt, const float temp_target, const float nu) {
+void integrateVelVerlet(const float en, const float* box, const int part, const float* f, const int npart, float* positions, float* velocities, const float dt, const float temp_target, const float nu, const int frame) {
 	
 	int i,j;
 	
@@ -351,21 +369,24 @@ void integrateVelVerlet(const int part, const float* f, const int npart, float* 
 		float *devPtr_forces;
 		float *devPtr_positions;
 		float *devPtr_velocities;
+		float *devPtr_box;
 	
 		errorHandler(cudaMalloc((void**)&devPtr_forces, 3*npart* sizeof(float)),__LINE__);
 		errorHandler(cudaMalloc((void**)&devPtr_positions, 3*npart* sizeof(float)),__LINE__);
 		errorHandler(cudaMalloc((void**)&devPtr_velocities, 3*npart*sizeof(float)),__LINE__);
+		errorHandler(cudaMalloc((void**)&devPtr_box, 3*sizeof(float)),__LINE__);
 		
 		errorHandler(cudaMemcpy(devPtr_forces, f, 3*npart * sizeof(float), cudaMemcpyHostToDevice),__LINE__);
 		errorHandler(cudaMemcpy(devPtr_positions, positions, 3*npart * sizeof(float), cudaMemcpyHostToDevice),__LINE__);
 		errorHandler(cudaMemcpy(devPtr_velocities, velocities, 3*npart *sizeof(float), cudaMemcpyHostToDevice),__LINE__);
+		errorHandler(cudaMemcpy(devPtr_box, box, 3*sizeof(float), cudaMemcpyHostToDevice),__LINE__);
 		
 		int threadsPerBlock = 512;
 		int blocks = npart/threadsPerBlock + 1;
 		
 		//fprintf(stderr,"starting GPU calc\n");
 		
-		integrateParticle1<<<blocks, threadsPerBlock>>>(npart, devPtr_forces, devPtr_positions, devPtr_velocities, dt);
+		integrateParticle1<<<blocks, threadsPerBlock>>>(npart, devPtr_box, devPtr_forces, devPtr_positions, devPtr_velocities, dt);
 		errorHandler( cudaPeekAtLastError(),__LINE__);
 		
 		errorHandler(cudaMemcpy(positions, devPtr_positions, 3*npart * sizeof(float), cudaMemcpyDeviceToHost),__LINE__);
@@ -374,6 +395,7 @@ void integrateVelVerlet(const int part, const float* f, const int npart, float* 
 		errorHandler(cudaFree(devPtr_forces),__LINE__);
 		errorHandler(cudaFree(devPtr_positions),__LINE__);
 		errorHandler(cudaFree(devPtr_velocities),__LINE__);
+		errorHandler(cudaFree(devPtr_box),__LINE__);
 		
 				
 	}
@@ -402,17 +424,37 @@ void integrateVelVerlet(const int part, const float* f, const int npart, float* 
 		errorHandler(cudaFree(devPtr_forces),__LINE__);
 		errorHandler(cudaFree(devPtr_velocities),__LINE__);
 		
-		
+
 		//temp_current /= 3*npart;
 		float sigma = sqrt(temp_target);
 		
-		for(i=0; i<npart; i++) {
-			if(rand()/(float)RAND_MAX < nu*dt) {
-				for(j=0; j<3; j++)
-					velocities[3*i+j] = gauss(sigma,0);
-			
+		//float* sumv = (float*)calloc(3,sizeof(float));
+
+		if(fabs(nu) > 0.001) {
+			for(i=0; i<npart; i++) {
+				if(rand()/(float)RAND_MAX < nu*dt) {
+					for(j=0; j<3; j++) {
+						velocities[3*i+j] = gauss(sigma,0);
+					}
+				}
+			//sumv[0] += velocities[3*i];
+			//sumv[1] += velocities[3*i+1];
+			//sumv[2] += velocities[3*i+2];
 			}
 		}
+		
+		//sumv[0] /=npart;
+		//sumv[1] /=npart;
+		//sumv[2] /=npart;
+		
+		//float sumvSquared = sumv[0]*sumv[0] + sumv[1]*sumv[1] + sumv[2]*sumv[2];	
+		//float etot = (en + 0.5*temp_current)/npart;
+		
+		//fprintf(stdout,"total Vel CMS: %f VelX: %8.5f VelY %8.5f VelZ %8.5f Temp: %f Energy: %f frame: %d\n",sumvSquared, sumv[0], sumv[1], sumv[2], temp_current, etot, frame);
+		//fprintf(stdout,"Temp: %f Energy: %f frame: %d\n", temp_current, etot, frame);
+	
+		
+		//fprintf(stdout,"Velocity Center of mass: %f frame: %d\n",sumv2, frame);
 	
 	}
 }*/
@@ -468,46 +510,7 @@ void calcForce(float* en,float* f, const float* positions, const int npart, cons
 }
 
 
-/*void integrateVelVerlet(const int part, const float* f, const int npart, float* positions, float* velocities, const float dt, const float temp_target, const float nu) {
-	
-	int i,j;
-	
-	if(part ==1) {
-		
-		for(i=0; i<npart; i++)
-			for(j=0; j<3; j++) {
-				positions[3*i+j] = positions[3*i+j] + dt* velocities[3*i+j] +dt*dt* f[3*i+j]/2;
-				velocities[3*i+j] += dt*f[3*i+j]/2;
-			}
-				
-	}
-	
-	if(part ==2) {
-		
-		//float temp_current =0;
-		for(i=0; i<npart; i++) {
-			for(j=0; j<3; j++){
-				velocities[3*i+j] = velocities[3*i+j] +dt* f[3*i+j]/2;
-				//temp_current += velocities[3*i+j] *velocities[3*i+j];
-			}
-		}
-		
-		//temp_current /= 3*npart;
-		float sigma = sqrt(temp_target);
-		
-		for(i=0; i<npart; i++) {
-			if(rand()/(float)RAND_MAX < nu*dt) {
-				for(j=0; j<3; j++)
-					velocities[3*i+j] = gauss(sigma,0);
-			
-			}
-		}
-	
-	}
-}*/
-#endif
-
-void integrateVelVerlet(const float en, const float* box, const int part, const float* f, const int npart, float* positions, float* velocities, const float dt, const float temp_target, const float nu, const int frame) {
+/*void integrateVelVerlet(const float en, const float* box, const int part, const float* f, const int npart, float* positions, float* velocities, const float dt, const float temp_target, const float nu, const int frame) {
 	
 	int i,j;
 	
@@ -545,27 +548,102 @@ void integrateVelVerlet(const float en, const float* box, const int part, const 
 		temp_current /= 3*npart;
 		float sigma = sqrt(temp_target);
 		
-		float* sumv = (float*)calloc(3,sizeof(float));
-		for(i=0; i<npart; i++) {
-			if(rand()/(float)RAND_MAX < nu*dt) {
-				for(j=0; j<3; j++) {
-					velocities[3*i+j] = gauss(sigma,0);
+		//float* sumv = (float*)calloc(3,sizeof(float));
+
+		if(fabs(nu) > 0.001) {
+			for(i=0; i<npart; i++) {
+				if(rand()/(float)RAND_MAX < nu*dt) {
+					for(j=0; j<3; j++) {
+						velocities[3*i+j] = gauss(sigma,0);
+					}
 				}
+			//sumv[0] += velocities[3*i];
+			//sumv[1] += velocities[3*i+1];
+			//sumv[2] += velocities[3*i+2];
 			}
-			sumv[0] += velocities[3*i];
-			sumv[1] += velocities[3*i+1];
-			sumv[2] += velocities[3*i+2];
 		}
 		
-		sumv[0] /=npart;
-		sumv[1] /=npart;
-		sumv[2] /=npart;
+		//sumv[0] /=npart;
+		//sumv[1] /=npart;
+		//sumv[2] /=npart;
 		
-		float sumvSquared = sumv[0]*sumv[0] + sumv[1]*sumv[1] + sumv[2]*sumv[2];	
+		//float sumvSquared = sumv[0]*sumv[0] + sumv[1]*sumv[1] + sumv[2]*sumv[2];	
 		float etot = (en + 0.5*temp_current)/npart;
 		
-		fprintf(stdout,"total Vel CMS: %f VelX: %8.5f VelY %8.5f VelZ %8.5f Temp: %f Energy: %f frame: %d\n",sumvSquared, sumv[0], sumv[1], sumv[2], temp_current, etot, frame);
+		//fprintf(stdout,"total Vel CMS: %f VelX: %8.5f VelY %8.5f VelZ %8.5f Temp: %f Energy: %f frame: %d\n",sumvSquared, sumv[0], sumv[1], sumv[2], temp_current, etot, frame);
+		fprintf(stdout,"Temp: %f Energy: %f frame: %d\n", temp_current, etot, frame);
 	
+		
+		//fprintf(stdout,"Velocity Center of mass: %f frame: %d\n",sumv2, frame);
+	
+	}
+}*/
+#endif
+
+void integrateVelVerlet(const int sampleStep, const float surfaceTension, const float en, const float* box, const int part, const float* f, const int npart, float* positions, float* velocities, const float dt, const float temp_target, const float nu, const int frame) {
+	
+	int i,j;
+	
+	if(part ==1) {
+		
+		for(i=0; i<npart; i++)
+			for(j=0; j<3; j++) {
+				
+				positions[3*i+j] += dt* velocities[3*i+j] +dt*dt* f[3*i+j]/2; //update position
+				
+				//apply periodic boundary conditions
+				if(positions[3*i+j] > box[j]/2 || positions[3*i+j] < -box[j]/2) {
+					//float pposition = positions[3*i+j];
+					//positions[3*i+j] -= floor(positions[3*i+j]/box[j])*box[j];
+					positions[3*i+j] -= round(positions[3*i+j]/box[j])*box[j];
+					//fprintf(stdout,"Out of box positive particle %d in frame %d. Calculated position %f, corrected position %f\n",i,frame,pposition, positions[3*i+j]);
+				}
+
+				
+				velocities[3*i+j] += dt*f[3*i+j]/2;
+			}	
+				
+	}
+	
+	if(part ==2) {
+		
+		float temp_current =0;
+		for(i=0; i<npart; i++) {
+			for(j=0; j<3; j++){
+				velocities[3*i+j] = velocities[3*i+j] +dt* f[3*i+j]/2;
+				temp_current += velocities[3*i+j] *velocities[3*i+j];
+			}
+		}
+		
+		temp_current /= 3*npart;
+		float sigma = sqrt(temp_target);
+		
+		//float* sumv = (float*)calloc(3,sizeof(float));
+
+		if(fabs(nu) > 0.001) {
+			for(i=0; i<npart; i++) {
+				if(rand()/(float)RAND_MAX < nu*dt) {
+					for(j=0; j<3; j++) {
+						velocities[3*i+j] = gauss(sigma,0);
+					}
+				}
+			//sumv[0] += velocities[3*i];
+			//sumv[1] += velocities[3*i+1];
+			//sumv[2] += velocities[3*i+2];
+			}
+		}
+		
+		//sumv[0] /=npart;
+		//sumv[1] /=npart;
+		//sumv[2] /=npart;
+		
+		//float sumvSquared = sumv[0]*sumv[0] + sumv[1]*sumv[1] + sumv[2]*sumv[2];	
+		float etot = (en + 0.5*temp_current)/npart;
+		
+		//fprintf(stdout,"total Vel CMS: %f VelX: %8.5f VelY %8.5f VelZ %8.5f Temp: %f Energy: %f frame: %d\n",sumvSquared, sumv[0], sumv[1], sumv[2], temp_current, etot, frame);
+		if(!(frame%sampleStep))
+			fprintf(stdout,"Temp: %f Energy: %f frame: %d Surface Tension: %f \n", temp_current, etot, frame,surfaceTension);
+		
 		
 		//fprintf(stdout,"Velocity Center of mass: %f frame: %d\n",sumv2, frame);
 	
@@ -622,36 +700,11 @@ void sample(FILE* xres, FILE* vres, int npart, float* positions, float* velociti
 		//fprintf(vres, " %d %8.8f %8.8f %8.8f \n", i,velocities[3*i],velocities[3*i+1],velocities[3*i+2]);
 		fprintf(vres, " atom %8.8f %8.8f %8.8f \n",velocities[3*i],velocities[3*i+1],velocities[3*i+2]);
 		
+	
+		
 	}
 }
 
-/*void sample(FILE* xres, FILE* vres, int npart, float* positions, float* velocities, float box, int nslabs, int* density) {
-	
-	int i;
-	
-	for(i=0; i<npart; i++) {
-		//fprintf(xres, " %d %8.8f %8.8f %8.8f \n", i,positions[3*i],positions[3*i+1],positions[3*i+2]);
-		fprintf(xres, " atom %8.8f %8.8f %8.8f \n", positions[3*i],positions[3*i+1],positions[3*i+2]);
-	}
-	
-	for(i=0; i<npart; i++) {
-		//fprintf(vres, " %d %8.8f %8.8f %8.8f \n", i,velocities[3*i],velocities[3*i+1],velocities[3*i+2]);
-		fprintf(vres, " atom %8.8f %8.8f %8.8f \n",velocities[3*i],velocities[3*i+1],velocities[3*i+2]);
-	}
-	
-		//Dichte Messung - liefert Teilchenzahl pro Schicht in jedem Durchgang als XYZ Datei
-		//Eindimensional & in Z-Richtung
-	for (i=0; i<npart; i++) {
-		density[(int)(positions[3*i+2] / (box / nslabs))] += 1;  //Verteile Atome auf Slabs
-	}
-	
-	
-	/* for(i=0; i<npart; i++) {
-		//fprintf(fres, " %d %8.8f %8.8f %8.8f \n", i,f[3*i],f[3*i+1],f[3*i+2]);
-		fprintf(fres, " atom %8.8f %8.8f %8.8f \n",f[3*i],f[3*i+1],f[3*i+2]);
-	}
-	
-}*/
 
 int main(int argc, char* argv[])
 {
@@ -659,16 +712,12 @@ int main(int argc, char* argv[])
 	float temp,dt,tmax,cutoff, cutoff2,nu;
 	float box[3];
 	//cutoff for lennard jones
-	//char* xpath;
-	//char* vpath;
 	
 	char* inXpath;
 	char* inVpath;
-	//char* fpath;
 	int thermostat =0;
 	int continued = 0;
 	int preset =0;
-	//int densityMeasurement = 0;
 		
 	if(argc==10) {
 		
@@ -744,10 +793,6 @@ int main(int argc, char* argv[])
 	cutoff2 = cutoff*cutoff;
 	FILE* xres = fopen("./pos.xyz","w");
 	FILE* vres = fopen("./vel.xyz","w");
-//	FILE* fres = fopen(fpath,"w");
-	
-	//FILE* dres = fopen("./density.xyz","w");
-	//if(!dres) {printf("File not found!");}
 	
 	
 	if(!xres || !vres) {
@@ -755,9 +800,8 @@ int main(int argc, char* argv[])
 		exit(-1);
 	}
 	
-	//int* density = (int*) calloc(nslabs,sizeof(int));
  	
-	float en;
+	float en, surfaceTension;
 	
 	float *positions =NULL;
 	float *ppositions = NULL;
@@ -808,63 +852,57 @@ int main(int argc, char* argv[])
 	float ecut = 4*cutoff6i*(cutoff6i-1);
 
 	
-	if(thermostat) calcForce(&en,f, positions, npart, box, cutoff2,(int)(t/dt), ecut);
+	if(thermostat) calcForce(&surfaceTension,&en,f, positions, npart, box, cutoff2,(int)(t/dt), ecut);
 	
 	sample(xres, vres, npart, positions, velocities);
 	while(t < tmax) {
+
+		int frame = (int)(t/dt);
 		
 		if(!thermostat) {
-			calcForce(&en, f, positions, npart, box, cutoff2,(int)(t/dt), ecut);
-			integrateVerlet(box, f, en, npart, positions, ppositions, velocities, dt,(int)(t/dt));
+			calcForce(&surfaceTension,&en, f, positions, npart, box, cutoff2,(int)(t/dt), ecut);
+			integrateVerlet(box, f, en, npart, positions, ppositions, velocities, dt,frame);
 			t += dt;
 			sample(xres, vres, npart, positions, velocities);
 			fprintf(stderr,"Stage %% %f\r",(double)t/tmax*100.0);
 			
 		} else {
 			
-			integrateVelVerlet(en,box, 1,f, npart, positions, velocities, dt, temp,nu,(int)(t/dt));
-			calcForce(&en, f, positions, npart, box, cutoff2,(int)(t/dt), ecut);
-			integrateVelVerlet(en,box, 2,f, npart, positions, velocities, dt, temp,nu,(int)(t/dt));
+			integrateVelVerlet(sampleStep, surfaceTension ,en,box, 1,f, npart, positions, velocities, dt, temp,nu,frame);
+			calcForce(&surfaceTension, &en, f, positions, npart, box, cutoff2,frame, ecut);
+			integrateVelVerlet(sampleStep,surfaceTension, en,box, 2,f, npart, positions, velocities, dt, temp,nu,frame);
 			t += dt;
-			if(!(((int)(t/dt))%sampleStep)) sample(xres, vres, npart, positions, velocities);
-			//sample(xres, vres, npart, positions, velocities);
-			//if(!densityMeasurement) sample(xres, vres, npart, positions, velocities);
-				//else sample(xres, vres, npart, positions, velocities,box[2],nslabs,density);
+			if(!(frame%sampleStep)) {
+			
+ 				sample(xres, vres, npart, positions, velocities);
+
+				FILE* xend = fopen("./posEnd.xyz","w");
+				FILE* vend = fopen("./velEnd.xyz","w");
+	
+				if(!xend || !vend) {
+					printf("File not found!");
+					exit(-1);
+				}
+	
+				fprintf(xend,"%d\n",npart);
+				fprintf(xend,"generated by my MD simulation\n");
+				fprintf(vend,"%d\n",npart);
+				fprintf(vend,"generated by my MD simulation\n");
+	
+				sample(xend, vend, npart, positions, velocities);
+	
+				fclose(xend);
+				fclose(vend);
+
+			}
 			fprintf(stderr,"Stage %% %f\r",(double)t/tmax*100.0);
 		}
 	}
 	
-	/*if(densityMeasurement) {
-		fprintf(dres, "Number of particles in cells of length %f / %d \n", box[2],nslabs);
-		
-		for(int i=0; i<nslabs;i++){							
-			fprintf(dres, "Slab %d % d \n", i, density[i] / ( (int) (tmax/dt) ) );						//Gebe Anzahl Atome pro Slab in einer Zeile nebeneinander aus 
-		}
-		fclose(dres);
-	}*/
 	
 	fclose(xres);
 	fclose(vres);
-	//fclose(fres);
 	free(f);
-	
-	FILE* xend = fopen("./posEnd.xyz","w");
-	FILE* vend = fopen("./velEnd.xyz","w");
-	
-	if(!xend || !vend) {
-		printf("File not found!");
-		exit(-1);
-	}
-	
-	fprintf(xend,"%d\n",npart);
-	fprintf(xend,"generated by my MD simulation\n");
-	fprintf(vend,"%d\n",npart);
-	fprintf(vend,"generated by my MD simulation\n");
-	
-	sample(xend, vend, npart, positions, velocities);
-	
-	fclose(xend);
-	fclose(vend);
 	
 	free(positions);
 	free(ppositions);
