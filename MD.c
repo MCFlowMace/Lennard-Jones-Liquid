@@ -550,9 +550,11 @@ void integrateVelVerlet(const float en, const float* box, const int part, const 
 			if(rand()/(float)RAND_MAX < nu*dt) {
 				for(j=0; j<3; j++) {
 					velocities[3*i+j] = gauss(sigma,0);
-					sumv[j] += velocities[3*i+j];
 				}
 			}
+			sumv[0] += velocities[3*i];
+			sumv[1] += velocities[3*i+1];
+			sumv[2] += velocities[3*i+2];
 		}
 		
 		sumv[0] /=npart;
