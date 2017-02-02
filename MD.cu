@@ -210,7 +210,7 @@ void errorHandler  (cudaError_t error, int line){
   }
 }
 
-__global__ void particleForce(float* f, const float* positions, const int npart, const float boxX, const float boxY, const float boxZ, const float cutoff2, const int n, const float ecut, float* energies) {
+__global__ void particleForce(float* f, const float* positions, const int npart, const float boxX, const float boxY, const float boxZ, const float cutoff2, const int n, const float ecut, float* energies,float* SurfaceTensions) {
 	
 	
 	int threadId = blockIdx.x*blockDim.x + threadIdx.x;
@@ -233,6 +233,7 @@ __global__ void particleForce(float* f, const float* positions, const int npart,
 	f[3*threadId+2] =0;
 	
 	energies[threadId] =0;
+	SurfaceTensions[threadId] =0;
 			
 	for(j=0; j<npart; j++) {
 			
@@ -256,26 +257,32 @@ __global__ void particleForce(float* f, const float* positions, const int npart,
 							f[3*threadId+1] += ff*ry;
 							f[3*threadId+2] += ff*rz;
 							
-							if(j>threadId)
+							if(j>threadId) {
+								//ff = abs(ff);
 								energies[threadId] += 4*r6i*(r6i-1) - ecut;
+								SurfaceTensions[threadId] += ff * (rx*rx + ry*ry - 2 * rz * rz);
+							}
 						}
 						
 	}
 }
 
-void calcForce(float* en, float* f, const float* positions, const int npart, const float *box, const float cutoff2, const int n, const float ecut) {
+void calcForce(float *st,float* en, float* f, const float* positions, const int npart, const float *box, const float cutoff2, const int n, const float ecut) {
 	
 	
 	float *devPtr_forces;
 	float *devPtr_positions;
 	float *devPtr_energies;
+	float *devPtr_SurfaceTensions;
 	int i;
 	
 	float *energies = (float*)calloc(npart,sizeof(float));
+	float *SurfaceTensions = (float*)calloc(npart,sizeof(float));
 
 	errorHandler(cudaMalloc((void**)&devPtr_forces, 3*npart* sizeof(float)),__LINE__);
 	errorHandler(cudaMalloc((void**)&devPtr_positions, 3*npart* sizeof(float)),__LINE__);
 	errorHandler(cudaMalloc((void**)&devPtr_energies, npart*sizeof(float)),__LINE__);
+	errorHandler(cudaMalloc((void**)&devPtr_SurfaceTensions, npart*sizeof(float)),__LINE__);
 	
 	//errorHandler(cudaMemcpy(devPtr_forces, f, 3*npart * sizeof(float), cudaMemcpyHostToDevice),__LINE__);
 	errorHandler(cudaMemcpy(devPtr_positions, positions, 3*npart * sizeof(float), cudaMemcpyHostToDevice),__LINE__);
@@ -285,23 +292,31 @@ void calcForce(float* en, float* f, const float* positions, const int npart, con
 	
 	//fprintf(stderr,"starting GPU calc\n");
 	
-	particleForce<<<blocks, threadsPerBlock>>>(devPtr_forces, devPtr_positions, npart, box[0], box[1], box[2], cutoff2, n,ecut, devPtr_energies);
+	particleForce<<<blocks, threadsPerBlock>>>(devPtr_forces, devPtr_positions, npart, box[0], box[1], box[2], cutoff2, n,ecut, devPtr_energies,devPtr_SurfaceTensions);
 	errorHandler( cudaPeekAtLastError(),__LINE__);
 	
 	errorHandler(cudaMemcpy(f, devPtr_forces, 3*npart * sizeof(float), cudaMemcpyDeviceToHost),__LINE__);
 	errorHandler(cudaMemcpy(energies,devPtr_energies, npart*sizeof(float), cudaMemcpyDeviceToHost),__LINE__);
+	errorHandler(cudaMemcpy(SurfaceTensions,devPtr_SurfaceTensions, npart*sizeof(float), cudaMemcpyDeviceToHost),__LINE__);
 	
 	errorHandler(cudaFree(devPtr_forces),__LINE__);
 	errorHandler(cudaFree(devPtr_positions),__LINE__);
 	errorHandler(cudaFree(devPtr_energies),__LINE__);
+	errorHandler(cudaFree(devPtr_SurfaceTensions),__LINE__);
 	
+	*st = 0;
 	*en =0;
 	for(i=0; i<npart; i++) {
 		*en += energies[i];
+		*st += SurfaceTensions[i];
 	}
+
+	*st /= 4*box[0]*box[1];
+
+	//*st = abs(*st);
 	
 	free(energies);
-
+	free(SurfaceTensions);
 	
 }
 
@@ -571,7 +586,7 @@ void calcForce(float* en,float* f, const float* positions, const int npart, cons
 }*/
 #endif
 
-void integrateVelVerlet(const int sampleStep, const float en, const float* box, const int part, const float* f, const int npart, float* positions, float* velocities, const float dt, const float temp_target, const float nu, const int frame) {
+void integrateVelVerlet(const int sampleStep, const float surfaceTension, const float en, const float* box, const int part, const float* f, const int npart, float* positions, float* velocities, const float dt, const float temp_target, const float nu, const int frame) {
 	
 	int i,j;
 	
@@ -633,8 +648,8 @@ void integrateVelVerlet(const int sampleStep, const float en, const float* box, 
 		
 		//fprintf(stdout,"total Vel CMS: %f VelX: %8.5f VelY %8.5f VelZ %8.5f Temp: %f Energy: %f frame: %d\n",sumvSquared, sumv[0], sumv[1], sumv[2], temp_current, etot, frame);
 		if(!(frame%sampleStep))
-			fprintf(stdout,"Temp: %f Energy: %f frame: %d\n", temp_current, etot, frame);
-	
+			fprintf(stdout,"Temp: %f Energy: %f Surface Tension: %8.5f frame: %d\n", temp_current, etot,surfaceTension, frame);
+		
 		
 		//fprintf(stdout,"Velocity Center of mass: %f frame: %d\n",sumv2, frame);
 	
@@ -690,6 +705,8 @@ void sample(FILE* xres, FILE* vres, int npart, float* positions, float* velociti
 	for(i=0; i<npart; i++) {
 		//fprintf(vres, " %d %8.8f %8.8f %8.8f \n", i,velocities[3*i],velocities[3*i+1],velocities[3*i+2]);
 		fprintf(vres, " atom %8.8f %8.8f %8.8f \n",velocities[3*i],velocities[3*i+1],velocities[3*i+2]);
+		
+	
 		
 	}
 }
@@ -790,7 +807,7 @@ int main(int argc, char* argv[])
 	}
 	
  	
-	float en;
+	float en, st;
 	
 	float *positions =NULL;
 	float *ppositions = NULL;
@@ -840,8 +857,9 @@ int main(int argc, char* argv[])
 	float cutoff6i = cutoffi*cutoffi*cutoffi;
 	float ecut = 4*cutoff6i*(cutoff6i-1);
 
-	
-	if(thermostat) calcForce(&en,f, positions, npart, box, cutoff2,(int)(t/dt), ecut);
+	//void integrateVelVerlet(const int sampleStep, const float surfaceTension, const float en, const float* box, const int part, const float* f, const int npart, float* positions, float* velocities, const float dt, const float temp_target, const float nu, const int frame)
+//calcForce(float *surfaceTension,float* en, float* f, const float* positions, const int npart, const float *box, const float cutoff2, const int n, const float ecut)
+	if(thermostat) calcForce(&st,&en,f, positions, npart, box, cutoff2,(int)(t/dt), ecut);
 	
 	sample(xres, vres, npart, positions, velocities);
 	while(t < tmax) {
@@ -849,7 +867,7 @@ int main(int argc, char* argv[])
 		int frame = (int)(t/dt);
 		
 		if(!thermostat) {
-			calcForce(&en, f, positions, npart, box, cutoff2,(int)(t/dt), ecut);
+			calcForce(&st,&en, f, positions, npart, box, cutoff2,frame, ecut);
 			integrateVerlet(box, f, en, npart, positions, ppositions, velocities, dt,frame);
 			t += dt;
 			sample(xres, vres, npart, positions, velocities);
@@ -857,9 +875,9 @@ int main(int argc, char* argv[])
 			
 		} else {
 			
-			integrateVelVerlet(sampleStep, en,box, 1,f, npart, positions, velocities, dt, temp,nu,frame);
-			calcForce(&en, f, positions, npart, box, cutoff2,frame, ecut);
-			integrateVelVerlet(sampleStep, en,box, 2,f, npart, positions, velocities, dt, temp,nu,frame);
+			integrateVelVerlet(sampleStep, st ,en,box, 1,f, npart, positions, velocities, dt, temp,nu,frame);
+			calcForce(&st, &en, f, positions, npart, box, cutoff2,frame, ecut);
+			integrateVelVerlet(sampleStep,st, en,box, 2,f, npart, positions, velocities, dt, temp,nu,frame);
 			t += dt;
 			if(!(frame%sampleStep)) {
 			
