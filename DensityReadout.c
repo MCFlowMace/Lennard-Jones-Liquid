@@ -221,7 +221,11 @@ int main(int argc, char* argv[]) {
 			fscanf(xin, "%*[^\n]\n", NULL);
 			
 			
-			float* densityZ = (float*) calloc(divisionsZ,sizeof(float));
+			float densityZ[divisionsZ];
+			
+			for(i=0;i<divisionsZ;i++) {
+				densityZ[i] = 0;
+			}
 			
 			FILE* file = fopen("./HistogramDensities.xyz","w");
 		
@@ -242,7 +246,7 @@ int main(int argc, char* argv[]) {
 					error = fscanf(xin,"atom %f %f %f \n",&posX,&posY,&posZ);
 				}
 				
-				frames++; //Hiermit dann mitzählen wie viele Frames abgelaufen - Am Ende die Dichte damit verrechnen und ausgeben
+				frames++; //Mitzählen wie viele Frames abgelaufen - Am Ende die Dichte damit verrechnen und ausgeben
 				
 				
 				
