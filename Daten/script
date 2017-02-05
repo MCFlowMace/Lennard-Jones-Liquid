@@ -1,0 +1,82 @@
+#!/bin/bash
+cd T=1.13
+../../Density ./pos113.xyz 8 8 8 20 20 40 2
+mv ./BinderParameter.xyz ./BinderParameter8.xyz
+../../Density ./pos113.xyz 12 12 12 20 20 40 2
+mv ./BinderParameter.xyz ./BinderParameter12.xyz
+../../Density ./pos113.xyz 16 16 16 20 20 40 2
+mv ./BinderParameter.xyz ./BinderParameter16.xyz
+../../Density ./pos113.xyz 20 20 20 20 20 40 3
+cd .. 
+cd T=1.14
+../../Density ./pos114.xyz 8 8 8 20 20 40 2
+mv ./BinderParameter.xyz ./BinderParameter8.xyz
+../../Density ./pos114.xyz 12 12 12 20 20 40 2
+mv ./BinderParameter.xyz ./BinderParameter12.xyz
+../../Density ./pos114.xyz 16 16 16 20 20 40 2
+mv ./BinderParameter.xyz ./BinderParameter16.xyz
+../../Density ./pos114.xyz 20 20 20 20 20 40 3
+cd ..  
+cd T=1.145
+../../Density ./pos1145.xyz 8 8 8 20 20 40 2
+mv ./BinderParameter.xyz ./BinderParameter8.xyz
+../../Density ./pos1145.xyz 12 12 12 20 20 40 2
+mv ./BinderParameter.xyz ./BinderParameter12.xyz
+../../Density ./pos1145.xyz 16 16 16 20 20 40 2
+mv ./BinderParameter.xyz ./BinderParameter16.xyz
+../../Density ./pos1145.xyz 20 20 20 20 20 40 3
+cd ..  
+cd T=1.155
+../../Density ./pos1155.xyz 8 8 8 20 20 40 2
+mv ./BinderParameter.xyz ./BinderParameter8.xyz
+../../Density ./pos1155.xyz 12 12 12 20 20 40 2
+mv ./BinderParameter.xyz ./BinderParameter12.xyz
+../../Density ./pos1155.xyz 16 16 16 20 20 40 2
+mv ./BinderParameter.xyz ./BinderParameter16.xyz
+../../Density ./pos1155.xyz 20 20 20 20 20 40 3
+cd ..  
+cd T=1.16
+../../Density ./pos116.xyz 8 8 8 20 20 40 2
+mv ./BinderParameter.xyz ./BinderParameter8.xyz
+../../Density ./pos116.xyz 12 12 12 20 20 40 2
+mv ./BinderParameter.xyz ./BinderParameter12.xyz
+../../Density ./pos116.xyz 16 16 16 20 20 40 2
+mv ./BinderParameter.xyz ./BinderParameter16.xyz
+../../Density ./pos116.xyz 20 20 20 20 20 40 3
+cd ..  
+cd T=1.17
+../../Density ./pos117.xyz 8 8 8 20 20 40 2
+mv ./BinderParameter.xyz ./BinderParameter8.xyz
+../../Density ./pos117.xyz 12 12 12 20 20 40 2
+mv ./BinderParameter.xyz ./BinderParameter12.xyz
+../../Density ./pos117.xyz 16 16 16 20 20 40 2
+mv ./BinderParameter.xyz ./BinderParameter16.xyz
+../../Density ./pos117.xyz 20 20 20 20 20 40 3
+cd ..  
+cd T=1.18
+../../Density ./pos118.xyz 8 8 8 20 20 40 2
+mv ./BinderParameter.xyz ./BinderParameter8.xyz
+../../Density ./pos118.xyz 12 12 12 20 20 40 2
+mv ./BinderParameter.xyz ./BinderParameter12.xyz
+../../Density ./pos118.xyz 16 16 16 20 20 40 2
+mv ./BinderParameter.xyz ./BinderParameter16.xyz
+../../Density ./pos118.xyz 20 20 20 20 20 40 3
+cd ..  
+cd T=1.19
+../../Density ./pos119.xyz 8 8 8 20 20 40 2
+mv ./BinderParameter.xyz ./BinderParameter8.xyz
+../../Density ./pos119.xyz 12 12 12 20 20 40 2
+mv ./BinderParameter.xyz ./BinderParameter12.xyz
+../../Density ./pos119.xyz 16 16 16 20 20 40 2
+mv ./BinderParameter.xyz ./BinderParameter16.xyz
+../../Density ./pos119.xyz 20 20 20 20 20 40 3
+cd ..  
+cd T=1.20
+../../Density ./pos120.xyz 8 8 8 20 20 40 2
+mv ./BinderParameter.xyz ./BinderParameter8.xyz
+../../Density ./pos120.xyz 12 12 12 20 20 40 2
+mv ./BinderParameter.xyz ./BinderParameter12.xyz
+../../Density ./pos120.xyz 16 16 16 20 20 40 2
+mv ./BinderParameter.xyz ./BinderParameter16.xyz
+../../Density ./pos120.xyz 20 20 20 20 20 40 3
+cd ..  
