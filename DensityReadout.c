@@ -12,7 +12,7 @@ int main(int argc, char* argv[]) {
 	int divisionsX,divisionsY,divisionsZ,mode;
 	float box[3];
 	int indicator = 0;
-	
+
 	
 	posIn = argv[1];
 	sscanf(argv[2],"%d",&divisionsX); 
@@ -111,7 +111,7 @@ int main(int argc, char* argv[]) {
 		case 2: {
 
 		
-				float cellDensities[divisionsX][divisionsY][divisionsZ];
+				float cellDensities[divisionsX+1][divisionsY+1][divisionsZ+1];
 				float average,var,varVar,averageTemp;
 		
 		
@@ -133,7 +133,8 @@ int main(int argc, char* argv[]) {
 			
 		
 				while( error != EOF) { //Solange es noch etwas zu lesen gibt? 
-		
+					
+					
 					for(i=0; i<npart;i++) {
 						posX += box[0]/2;
 						posY += box[1]/2;
@@ -149,14 +150,16 @@ int main(int argc, char* argv[]) {
 			
 			
 					//average entspricht roh_bar
-					for (i=0;i< divisionsX ;i++) {
+					for (i=0; i< divisionsX ;i++) {
 						for (j = 0; j < divisionsY; j++) {
 							for (z = 0; z < divisionsZ; z++) {
-								averageTemp += cellDensities[i][j][z];			
+								averageTemp += cellDensities[i][j][z];
 							}
 						}
 					}
-			
+					
+				
+					
 					averageTemp /= divisionsX * divisionsY * divisionsZ;
 					average += averageTemp;
 		
@@ -170,6 +173,8 @@ int main(int argc, char* argv[]) {
 						}
 					}
 		
+					
+				
 		
 					//varVar entspricht m^4
 					for (i=0;i< divisionsX ;i++) {
@@ -179,6 +184,7 @@ int main(int argc, char* argv[]) {
 							}
 						}
 					}
+					
 			
 					for (i=0;i< divisionsX ;i++) {
 						for (j = 0; j < divisionsY; j++) {
@@ -187,13 +193,12 @@ int main(int argc, char* argv[]) {
 							}
 						}
 					}
-		
+			
 				}
 		
 				average /= frames;
 				var /= (frames*divisionsX*divisionsY*divisionsZ);
 				varVar /= (frames*divisionsX*divisionsY*divisionsZ);
-		
 		
 		
 				FILE* binder = fopen("./BinderParameter.xyz","w");
@@ -227,7 +232,7 @@ int main(int argc, char* argv[]) {
 				densityZ[i] = 0;
 			}
 			
-			FILE* file = fopen("./HistogramDensities.xyz","w");
+			FILE* file = fopen("./HistogramDensities.txt","w");
 		
 			if(!file) {
 				printf("File not found!");
